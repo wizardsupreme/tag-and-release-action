@@ -1,0 +1,54 @@
+name: 'Tag and Release Action'
+description: 'Automatically tag and create GitHub releases based on semantic commit messages'
+author: 'Nayeem Syed - Wizard Supreme of AI and Automation'
+
+inputs:
+  github-token:
+    description: 'GitHub token with permissions to create tags and releases'
+    required: true
+  commit-message:
+    description: 'Override commit message for version bump detection'
+    required: false
+  base-ref:
+    description: 'Base reference to compare against (default: latest tag)'
+    required: false
+
+runs:
+  using: "composite"
+  steps:
+    - name: 📊 Determine version bump
+      id: bump
+      shell: bash
+      run: |
+        echo "::group::Determining version bump type"
+        # Get the latest commit message or use provided one
+        if [ -n "${{ inputs.commit-message }}" ]; then
+          COMMIT_MSG="${{ inputs.commit-message }}"
+        else
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+        fi
+        
+        # Determine bump type based on commit message
+        if [[ "$COMMIT_MSG" == *"BREAKING CHANGE:"* ]] || [[ "$COMMIT_MSG" == *"MAJOR:"* ]]; then
+          echo "BUMP_TYPE=major" >> $GITHUB_OUTPUT
+        elif [[ "$COMMIT_MSG" == *"FEAT:"* ]] || [[ "$COMMIT_MSG" == *"FEATURE:"* ]] || [[ "$COMMIT_MSG" == *"MINOR:"* ]]; then
+          echo "BUMP_TYPE=minor" >> $GITHUB_OUTPUT
+        else
+          echo "BUMP_TYPE=patch" >> $GITHUB_OUTPUT
+        fi
+        
+        echo "Determined bump type: $(cat $GITHUB_OUTPUT | grep BUMP_TYPE | cut -d= -f2)"
+        echo "::endgroup::"
+      
+    - name: 🏷️ Get latest tag
+      id: latest_tag
+      shell: bash
+      run: |
+        echo "::group::Finding latest tag"
+        # Get the latest tag or set to v0.0.0 if none exists
+        LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+        echo "LATEST_TAG=$LATEST_TAG" >> $GITHUB_OUTPUT
+        echo "Latest tag: $LATEST_TAG"
+        echo "::endgroup::"
+      
+    # Include the rest of your steps from the original workflow
