@@ -50,5 +50,145 @@ runs:
         echo "LATEST_TAG=$LATEST_TAG" >> $GITHUB_OUTPUT
         echo "Latest tag: $LATEST_TAG"
         echo "::endgroup::"
-      
-    # Include the rest of your steps from the original workflow
+    
+    - name: 🧮 Calculate new version
+      id: version
+      run: |
+        echo "::group::Calculating new version"
+        LATEST_TAG="${{ steps.latest_tag.outputs.LATEST_TAG }}"
+        BUMP_TYPE="${{ steps.bump.outputs.BUMP_TYPE }}"
+        
+        # Remove 'v' prefix for version calculation
+        VERSION=${LATEST_TAG#v}
+        
+        # Extract version components, keeping original values
+        # Use regex to extract numbers from each component
+        if [[ "$VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+) ]]; then
+          MAJOR="${BASH_REMATCH[1]}"
+          MINOR="${BASH_REMATCH[2]}"
+          PATCH="${BASH_REMATCH[3]}"
+        else
+          # Try to extract whatever numbers we can
+          MAJOR=$(echo "$VERSION" | sed -E 's/^([0-9]+).*/\1/g')
+          MINOR=$(echo "$VERSION" | sed -E 's/^[^.]*\.([0-9]+).*/\1/g')
+          PATCH=$(echo "$VERSION" | sed -E 's/^[^.]*\.[^.]*\.([0-9]+).*/\1/g')
+          
+          # Set defaults for any component that couldn't be extracted
+          [[ -z "$MAJOR" || ! "$MAJOR" =~ ^[0-9]+$ ]] && MAJOR=0
+          [[ -z "$MINOR" || ! "$MINOR" =~ ^[0-9]+$ ]] && MINOR=0
+          [[ -z "$PATCH" || ! "$PATCH" =~ ^[0-9]+$ ]] && PATCH=0
+          
+          echo "Warning: Non-standard version format in tag '$LATEST_TAG', extracted components: $MAJOR.$MINOR.$PATCH"
+        fi
+        
+        # Increment version based on bump type
+        if [ "$BUMP_TYPE" == "major" ]; then
+          MAJOR=$((MAJOR + 1))
+          MINOR=0
+          PATCH=0
+        elif [ "$BUMP_TYPE" == "minor" ]; then
+          MINOR=$((MINOR + 1))
+          PATCH=0
+        else
+          PATCH=$((PATCH + 1))
+        fi
+        
+        # Create new version string
+        NEW_VERSION="v$MAJOR.$MINOR.$PATCH"
+        echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
+        echo "New version: $NEW_VERSION"
+        echo "::endgroup::"
+    
+    - name: 📌 Create and push tag
+      run: |
+        echo "::group::Creating and pushing tag"
+        NEW_VERSION="${{ steps.version.outputs.NEW_VERSION }}"
+        BUMP_TYPE="${{ steps.bump.outputs.BUMP_TYPE }}"
+        
+        git config --global user.name "GitHub Actions"
+        git config --global user.email "actions@github.com"
+        
+        # Create and push the new tag
+        git tag -a $NEW_VERSION -m "Release $NEW_VERSION"
+        git push https://${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git $NEW_VERSION
+        
+        echo "Created and pushed tag: $NEW_VERSION"
+        echo "::endgroup::"
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: 📝 Create GitHub Release
+      run: |
+        echo "::group::Creating GitHub Release"
+        NEW_VERSION="${{ steps.version.outputs.NEW_VERSION }}"
+        BUMP_TYPE="${{ steps.bump.outputs.BUMP_TYPE }}"
+        
+        # Get all commits since the last tag
+        LATEST_TAG="${{ steps.latest_tag.outputs.LATEST_TAG }}"
+        
+        # Get commit history in a cleaner format
+        COMMITS=$(git log ${LATEST_TAG}..HEAD --pretty=format:"%s")
+        
+        # Process commits into a clean list
+        CHANGES=""
+        while IFS= read -r line; do
+          # Skip merge commits
+          if [[ "${line}" =~ ^Merge\ (pull\ request|branch|commit) ]]; then
+            echo "skipping merge line - $line"
+            continue
+          fi
+          
+          # Standardize commit prefixes to lowercase
+          if [[ "${line}" =~ ^([a-zA-Z]+:)\ (.*) ]]; then
+            # Extract prefix and message
+            PREFIX=$(echo "${BASH_REMATCH[1]}" | tr '[:upper:]' '[:lower:]')
+            MESSAGE="${BASH_REMATCH[2]}"
+            
+            CHANGES="${CHANGES}- ${PREFIX} ${MESSAGE}\n"
+          else
+            # For commits without standard prefixes - skip!
+            echo "Skipping commit without standard prefix: $line"
+            CHANGES="${CHANGES}- ${line}\n"
+          fi
+        done <<< "$COMMITS"
+        
+        # If no changes found, add a generic message
+        if [[ -z "$CHANGES" ]]; then
+          CHANGES="- General improvements and bug fixes"
+        fi
+        
+        # Write changes to a file first
+        echo -e "$CHANGES" > changes.txt
+        
+        # Create release notes file
+        echo "# Release $NEW_VERSION" > release_notes.md
+        echo "" >> release_notes.md
+        echo "## Changes" >> release_notes.md
+        cat changes.txt >> release_notes.md
+        echo "" >> release_notes.md
+        echo "For full changes, see the [commit history](https://github.com/${{ github.repository }}/commits/$NEW_VERSION)" >> release_notes.md
+        
+        # Create the release
+        gh release create $NEW_VERSION \
+          --title "Release $NEW_VERSION" \
+          --notes-file release_notes.md
+        echo "::endgroup::"
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: 🔄 Update major version tag
+      run: |
+        echo "::group::Updating major version tag"
+        NEW_VERSION="${{ steps.version.outputs.NEW_VERSION }}"
+        MAJOR_VERSION=$(echo $NEW_VERSION | cut -d. -f1)
+        
+        git config --global user.name "GitHub Actions"
+        git config --global user.email "actions@github.com"
+        
+        git tag -f $MAJOR_VERSION $NEW_VERSION
+        git push -f https://${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git $MAJOR_VERSION
+        
+        echo "Updated major version tag: $MAJOR_VERSION -> $NEW_VERSION"
+        echo "::endgroup::"
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
