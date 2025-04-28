@@ -53,6 +53,7 @@ runs:
     
     - name: 🧮 Calculate new version
       id: version
+      shell: bash
       run: |
         echo "::group::Calculating new version"
         LATEST_TAG="${{ steps.latest_tag.outputs.LATEST_TAG }}"
@@ -100,6 +101,7 @@ runs:
         echo "::endgroup::"
     
     - name: 📌 Create and push tag
+      shell: bash
       run: |
         echo "::group::Creating and pushing tag"
         NEW_VERSION="${{ steps.version.outputs.NEW_VERSION }}"
@@ -110,14 +112,13 @@ runs:
         
         # Create and push the new tag
         git tag -a $NEW_VERSION -m "Release $NEW_VERSION"
-        git push https://${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git $NEW_VERSION
+        git push https://${{ inputs.github-token }}@github.com/${GITHUB_REPOSITORY}.git $NEW_VERSION
         
         echo "Created and pushed tag: $NEW_VERSION"
         echo "::endgroup::"
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: 📝 Create GitHub Release
+      shell: bash
       run: |
         echo "::group::Creating GitHub Release"
         NEW_VERSION="${{ steps.version.outputs.NEW_VERSION }}"
@@ -174,9 +175,10 @@ runs:
           --notes-file release_notes.md
         echo "::endgroup::"
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
 
     - name: 🔄 Update major version tag
+      shell: bash
       run: |
         echo "::group::Updating major version tag"
         NEW_VERSION="${{ steps.version.outputs.NEW_VERSION }}"
@@ -186,9 +188,7 @@ runs:
         git config --global user.email "actions@github.com"
         
         git tag -f $MAJOR_VERSION $NEW_VERSION
-        git push -f https://${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git $MAJOR_VERSION
+        git push -f https://${{ inputs.github-token }}@github.com/${GITHUB_REPOSITORY}.git $MAJOR_VERSION
         
         echo "Updated major version tag: $MAJOR_VERSION -> $NEW_VERSION"
         echo "::endgroup::"
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
