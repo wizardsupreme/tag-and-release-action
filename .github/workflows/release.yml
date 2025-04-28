@@ -1,0 +1,22 @@
+name: Release
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write  # Needed for creating tags and releases
+
+jobs:
+  release:
+    runs-on: ubuntu-minimal
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      
+      - name: Create Tag and Release
+        uses: ./
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
